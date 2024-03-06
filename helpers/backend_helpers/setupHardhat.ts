@@ -1,28 +1,21 @@
-import chalk from "chalk";
-import cliProgress from "cli-progress";
 import path from "path";
 import { createEnv } from "../utils/createEnv.js";
 import fse from "fs-extra";
 import { DappInfo } from "../../interfaces/DappInfo.js";
-import { createWriteStream } from "fs";
+import { createWriteStream, mkdirSync } from "fs";
 import { generateAlchemyURL } from "../utils/generateAlchemyUrl.js";
+import { execSync } from "child_process";
 
 export const setUpHardhat = (dappInfo: DappInfo, projectPath) => {
-	console.log(chalk.yellow("Generating hardhat config files..."));
-	const bar2 = new cliProgress.SingleBar(
-		{},
-		cliProgress.Presets.shades_classic
-	);
-	bar2.start(100, 0);
-	bar2.update(50);
-
-	const hardhatTemplate = path.join(projectPath, "templates", "hardhat");
-	fse.mkdirSync(path.join(projectPath, "backend"));
-	fse.copySync(hardhatTemplate, path.join(projectPath, "backend"));
-
-	
-	createEnv({...dappInfo.apiKeys, ETHERSCAN_API_KEY: "", PRIVATE_KEY: ""}, path.join(projectPath, "backend"));
-	
+	if (
+		!dappInfo.isTemplate ||
+		dappInfo.backendProvider != "hardhat-template"
+	) {
+		mkdirSync(path.join(process.cwd(), "backend"));
+		mkdirSync(path.join(process.cwd(), "backend", "contracts"));
+		mkdirSync(path.join(process.cwd(), "backend", "scripts"));
+		mkdirSync(path.join(process.cwd(), "backend", "test"));
+	}
 
 	const writeStream = createWriteStream(
 		path.join(projectPath, "backend", "hardhat.config.js")
@@ -32,29 +25,33 @@ export const setUpHardhat = (dappInfo: DappInfo, projectPath) => {
 	writeStream.write("require('dotenv').config()\n\n");
 
 	const modules = {
-		solidity: "0.8.9",
+		solidity: {
+			version: "0.8.9",
+			settings: {
+				optimizer: {
+					enabled: true,
+				},
+			},
+		},
+		allowUnlimitedContractSize: true,
 		networks: {
 			hardhat: {},
-			[dappInfo.chain]: {
+			[dappInfo.chain!]: {
 				accounts: "[`${process.env.PRIVATE_KEY}`]",
-				url: generateAlchemyURL(
-					dappInfo.chain,
-				),
+				url: generateAlchemyURL(dappInfo.chain),
+			},
+			[dappInfo.testnet]: {
+				accounts: "[`${process.env.PRIVATE_KEY}`]",
+				url: generateAlchemyURL(dappInfo.testnet),
 			},
 		},
 		etherscan: {
-			apiKey: "`${process.env.ETHERSCAN_API_KEY}`"
-		}
+			apiKey: "`${process.env.ETHERSCAN_API_KEY}`",
+		},
+		paths: {
+			artifacts: "'../frontend/artifacts'",
+		},
 	};
-
-	if (dappInfo.isTestnet && dappInfo.testnet) {
-		modules.networks[dappInfo.testnet] = {
-			accounts: "[`${process.env.PRIVATE_KEY}`]",
-			url: generateAlchemyURL(
-				dappInfo.testnet,
-			),
-		};
-	}
 
 	writeStream.write(
 		`module.exports = ${JSON.stringify(modules, null, "\t").replace(
@@ -63,10 +60,4 @@ export const setUpHardhat = (dappInfo: DappInfo, projectPath) => {
 		)}`
 	);
 	writeStream.close();
-
-	bar2.update(100);
-	bar2.stop();
-	console.log(
-		chalk.green("Smart Contract Development Environment copied ✅")
-	);
 };
